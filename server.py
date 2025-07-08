@@ -159,6 +159,65 @@ async def delete_item(id: int):
 
     return Success({"id": row["id"]})
 
+@method
+async def query_items(
+    name_filter: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0
+):
+    """
+    Return a page of items, optionally filtering by name substring.
+    - name_filter: case-insensitive substring to match in `name`.
+    - limit: max number of items to return.
+    - offset: number of items to skip.
+    Responds with:
+      {
+        "items": [ {id, name, description}, ... ],
+        "total": <total matching rows>,
+        "limit": <limit>,
+        "offset": <offset>
+      }
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        # Build WHERE clause if filtering
+        where_clause = ""
+        values = []
+        idx = 1
+        if name_filter:
+            where_clause = f"WHERE name ILIKE ${idx}"
+            values.append(f"%{name_filter}%")
+            idx += 1
+
+        # Get total count
+        count_sql = f"SELECT COUNT(*) FROM items {where_clause}"
+        total = await conn.fetchval(count_sql, *values)
+
+        # Fetch paginated rows
+        # Add limit and offset placeholders
+        values.extend([limit, offset])
+        limit_placeholder = f"${idx}"
+        offset_placeholder = f"${idx+1}"
+        query_sql = (
+            f"SELECT id, name, description FROM items "
+            f"{where_clause} "
+            f"ORDER BY id "
+            f"LIMIT {limit_placeholder} OFFSET {offset_placeholder}"
+        )
+        rows = await conn.fetch(query_sql, *values)
+
+    # Serialize rows
+    items = [
+        {"id": r["id"], "name": r["name"], "description": r["description"]}
+        for r in rows
+    ]
+    return Success({
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    })
+
 @app.post("/rpc")
 async def rpc_endpoint(request: Request):
     # Read raw bytes from the HTTP request
