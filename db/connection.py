@@ -41,3 +41,13 @@ async def get_db_pool() -> asyncpg.Pool:
         raise RuntimeError("Database pool not initialized. Call init_db_pool() first.")
     return _pool
 
+
+async def close_db_pool():
+    """
+    Close the database pool and reset the global variable.
+    """
+    global _pool
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+

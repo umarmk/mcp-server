@@ -1,11 +1,11 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from jsonrpcserver import method, async_dispatch, Success
+from jsonrpcserver import method, async_dispatch, Success, Error
 import json
 from fastapi.responses import JSONResponse
 import uvicorn
 from typing import Optional
-from db.connection import init_db_pool, get_db_pool
+from db.connection import init_db_pool, get_db_pool, close_db_pool
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -13,8 +13,7 @@ async def lifespan(app: FastAPI):
     await init_db_pool()
     yield
     # Shutdown: Close the database pool
-    pool = await get_db_pool()
-    await pool.close()
+    await close_db_pool()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -46,6 +45,34 @@ async def create_item(name: str, description: Optional[str] = None):
         )
 
     # Wrap the row in a Success so jsonrpcserver serializes it correctly
+    return Success({
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+    })
+
+@method
+async def read_item(id: int):
+    """
+    Fetch an item by its ID.
+    Returns Success(row) if found, otherwise an Error.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, name, description
+            FROM items
+            WHERE id = $1
+            """,
+            id
+        )
+
+    if not row:
+        # Return a JSON-RPC error if the item doesn't exist
+        return Error(code=-32602, message=f"Item with id {id} not found")
+
+    # Wrap and return the found row
     return Success({
         "id": row["id"],
         "name": row["name"],
