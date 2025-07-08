@@ -79,6 +79,63 @@ async def read_item(id: int):
         "description": row["description"],
     })
 
+@method
+async def update_item(
+    id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None
+):
+    """
+    Update an existing item's name and/or description.
+    At least one of `name` or `description` must be provided.
+    Returns the updated row, or an Error if item not found or no fields given.
+    """
+    # Validate input
+    if name is None and description is None:
+        return Error(code=-32602, message="At least one of 'name' or 'description' must be provided")
+
+    # Build dynamic SET clause
+    set_clauses = []
+    values = []
+    param_index = 1
+
+    if name is not None:
+        set_clauses.append(f"name = ${param_index}")
+        values.append(name)
+        param_index += 1
+    if description is not None:
+        set_clauses.append(f"description = ${param_index}")
+        values.append(description)
+        param_index += 1
+
+    # Add the ID as the last parameter
+    values.append(id)
+    where_clause = f"WHERE id = ${param_index}"
+
+    # Assemble and execute the UPDATE
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            UPDATE items
+            SET {', '.join(set_clauses)}
+            {where_clause}
+            RETURNING id, name, description
+            """,
+            *values
+        )
+
+    # Handle not-found
+    if not row:
+        return Error(code=-32602, message=f"Item with id {id} not found")
+
+    # Return success
+    return Success({
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+    })
+
 @app.post("/rpc")
 async def rpc_endpoint(request: Request):
     # Read raw bytes from the HTTP request
