@@ -136,6 +136,29 @@ async def update_item(
         "description": row["description"],
     })
 
+@method
+async def delete_item(id: int):
+    """
+    Delete an item by its ID.
+    Returns Success({"id": id}) if deleted, otherwise an Error.
+    """
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        # Use DELETE ... RETURNING to know if a row was removed
+        row = await conn.fetchrow(
+            """
+            DELETE FROM items
+            WHERE id = $1
+            RETURNING id
+            """,
+            id
+        )
+
+    if not row:
+        return Error(code=-32602, message=f"Item with id {id} not found")
+
+    return Success({"id": row["id"]})
+
 @app.post("/rpc")
 async def rpc_endpoint(request: Request):
     # Read raw bytes from the HTTP request
