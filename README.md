@@ -148,7 +148,7 @@ python db/init_db.py
 
 ```bash
 # Test basic connectivity
-python -c "import asyncio; from postgres_mcp_server import main; print('✅ Server can start')"
+python -c "import asyncio; from postgres_mcp_server import main; print('Server can start')"
 ```
 
 ## Project Structure
