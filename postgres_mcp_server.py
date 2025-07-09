@@ -30,6 +30,7 @@ Environment Variables Required:
 """
 
 import os
+import json
 import logging
 from typing import Optional, Dict, List, Any
 from contextlib import asynccontextmanager
@@ -146,19 +147,19 @@ async def ping() -> str:
 
 
 @mcp.tool()
-async def get_server_info(ctx: Context) -> Dict[str, Any]:
+async def get_server_info(ctx: Context) -> str:
     """Get information about the MCP server and database connection"""
-    db_ctx: DatabaseContext = ctx.lifespan_context
-    
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
+
     try:
         # Get database version and basic info
         version_info = await db_ctx.execute_single("SELECT version() as version")
         db_size = await db_ctx.execute_single(
-            "SELECT pg_size_pretty(pg_database_size($1)) as size", 
+            "SELECT pg_size_pretty(pg_database_size($1)) as size",
             PG_DATABASE
         )
-        
-        return {
+
+        result = {
             "server_name": "PostgreSQL MCP Server",
             "database": PG_DATABASE,
             "host": PG_HOST,
@@ -167,12 +168,14 @@ async def get_server_info(ctx: Context) -> Dict[str, Any]:
             "database_size": db_size["size"] if db_size else "Unknown",
             "status": "connected"
         }
+        return json.dumps(result)
     except Exception as e:
-        return {
+        result = {
             "server_name": "PostgreSQL MCP Server",
             "status": "error",
             "error": str(e)
         }
+        return json.dumps(result)
 
 
 # =============================================================================
@@ -180,50 +183,50 @@ async def get_server_info(ctx: Context) -> Dict[str, Any]:
 # =============================================================================
 
 @mcp.tool()
-async def list_tables(ctx: Context, schema: str = "public") -> List[Dict[str, Any]]:
+async def list_tables(ctx: Context, schema: str = "public") -> str:
     """
     List all tables in the specified schema
-    
+
     Args:
         schema: Database schema name (default: 'public')
-        
+
     Returns:
         List of tables with their metadata
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
-    
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
+
     query = """
-        SELECT 
+        SELECT
             table_name,
             table_type,
             is_insertable_into,
             is_typed
-        FROM information_schema.tables 
+        FROM information_schema.tables
         WHERE table_schema = $1
         ORDER BY table_name
     """
-    
+
     tables = await db_ctx.execute_query(query, schema)
-    return tables
+    return json.dumps(tables)
 
 
 @mcp.tool()
-async def describe_table(ctx: Context, table_name: str, schema: str = "public") -> Dict[str, Any]:
+async def describe_table(ctx: Context, table_name: str, schema: str = "public") -> str:
     """
     Get detailed information about a specific table including columns, constraints, and indexes
-    
+
     Args:
         table_name: Name of the table to describe
         schema: Database schema name (default: 'public')
-        
+
     Returns:
         Detailed table information including columns, constraints, and indexes
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
-    
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
+
     # Get column information
     columns_query = """
-        SELECT 
+        SELECT
             column_name,
             data_type,
             is_nullable,
@@ -232,46 +235,47 @@ async def describe_table(ctx: Context, table_name: str, schema: str = "public") 
             numeric_precision,
             numeric_scale,
             ordinal_position
-        FROM information_schema.columns 
+        FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = $2
         ORDER BY ordinal_position
     """
-    
+
     # Get constraints
     constraints_query = """
-        SELECT 
-            constraint_name,
-            constraint_type,
-            column_name
+        SELECT
+            tc.constraint_name,
+            tc.constraint_type,
+            ccu.column_name
         FROM information_schema.table_constraints tc
-        JOIN information_schema.constraint_column_usage ccu 
+        JOIN information_schema.constraint_column_usage ccu
             ON tc.constraint_name = ccu.constraint_name
         WHERE tc.table_schema = $1 AND tc.table_name = $2
     """
-    
+
     # Get indexes
     indexes_query = """
-        SELECT 
+        SELECT
             indexname,
             indexdef
-        FROM pg_indexes 
+        FROM pg_indexes
         WHERE schemaname = $1 AND tablename = $2
     """
-    
+
     columns = await db_ctx.execute_query(columns_query, schema, table_name)
     constraints = await db_ctx.execute_query(constraints_query, schema, table_name)
     indexes = await db_ctx.execute_query(indexes_query, schema, table_name)
-    
+
     if not columns:
         raise ValueError(f"Table '{schema}.{table_name}' not found")
-    
-    return {
+
+    result = {
         "table_name": table_name,
         "schema": schema,
         "columns": columns,
         "constraints": constraints,
         "indexes": indexes
     }
+    return json.dumps(result)
 
 
 # =============================================================================
@@ -285,7 +289,7 @@ async def insert_record(
     data: Dict[str, Any],
     schema: str = "public",
     return_record: bool = True
-) -> Dict[str, Any]:
+) -> str:
     """
     Insert a new record into the specified table
 
@@ -298,7 +302,7 @@ async def insert_record(
     Returns:
         Dictionary containing the inserted record or operation status
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
 
     if not data:
         raise ValueError("Data dictionary cannot be empty")
@@ -317,12 +321,14 @@ async def insert_record(
         query = base_query + " RETURNING *"
         result = await db_ctx.execute_single(query, *values)
         if result:
-            return {"success": True, "record": db_ctx.serialize_value(result)}
+            response = {"success": True, "record": db_ctx.serialize_value(result)}
         else:
-            return {"success": False, "error": "Failed to insert record"}
+            response = {"success": False, "error": "Failed to insert record"}
     else:
         result = await db_ctx.execute_command(base_query, *values)
-        return {"success": True, "rows_affected": int(result.split()[-1])}
+        response = {"success": True, "rows_affected": int(result.split()[-1])}
+
+    return json.dumps(response)
 
 
 @mcp.tool()
@@ -336,7 +342,7 @@ async def select_records(
     order_by: Optional[str] = None,
     limit: Optional[int] = None,
     offset: Optional[int] = None
-) -> Dict[str, Any]:
+) -> str:
     """
     Select records from the specified table with advanced filtering options
 
@@ -353,7 +359,7 @@ async def select_records(
     Returns:
         Dictionary containing the selected records and metadata
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
 
     # Build the SELECT query
     select_columns = ", ".join(columns) if columns else "*"
@@ -389,13 +395,14 @@ async def select_records(
     count_result = await db_ctx.execute_single(count_query, *count_params)
     total_count = count_result["total"] if count_result else 0
 
-    return {
+    result = {
         "records": [db_ctx.serialize_value(record) for record in records],
         "total_count": total_count,
         "returned_count": len(records),
         "limit": limit,
         "offset": offset or 0
     }
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -407,7 +414,7 @@ async def update_records(
     where_params: List[Any],
     schema: str = "public",
     return_records: bool = True
-) -> Dict[str, Any]:
+) -> str:
     """
     Update records in the specified table
 
@@ -422,7 +429,7 @@ async def update_records(
     Returns:
         Dictionary containing the updated records or operation status
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
 
     if not data:
         raise ValueError("Data dictionary cannot be empty")
@@ -457,14 +464,16 @@ async def update_records(
     if return_records:
         query = base_query + " RETURNING *"
         records = await db_ctx.execute_query(query, *values)
-        return {
+        result = {
             "success": True,
             "records": [db_ctx.serialize_value(record) for record in records],
             "rows_affected": len(records)
         }
     else:
-        result = await db_ctx.execute_command(base_query, *values)
-        return {"success": True, "rows_affected": int(result.split()[-1])}
+        command_result = await db_ctx.execute_command(base_query, *values)
+        result = {"success": True, "rows_affected": int(command_result.split()[-1])}
+
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -475,7 +484,7 @@ async def delete_records(
     where_params: List[Any],
     schema: str = "public",
     return_records: bool = False
-) -> Dict[str, Any]:
+) -> str:
     """
     Delete records from the specified table
 
@@ -489,7 +498,7 @@ async def delete_records(
     Returns:
         Dictionary containing the deleted records or operation status
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
 
     if not where_clause:
         raise ValueError("WHERE clause is required for DELETE operations for safety")
@@ -499,14 +508,16 @@ async def delete_records(
     if return_records:
         query = base_query + " RETURNING *"
         records = await db_ctx.execute_query(query, *where_params)
-        return {
+        result = {
             "success": True,
             "records": [db_ctx.serialize_value(record) for record in records],
             "rows_affected": len(records)
         }
     else:
-        result = await db_ctx.execute_command(base_query, *where_params)
-        return {"success": True, "rows_affected": int(result.split()[-1])}
+        command_result = await db_ctx.execute_command(base_query, *where_params)
+        result = {"success": True, "rows_affected": int(command_result.split()[-1])}
+
+    return json.dumps(result)
 
 
 # =============================================================================
@@ -519,7 +530,7 @@ async def execute_custom_query(
     query: str,
     params: Optional[List[Any]] = None,
     query_type: str = "SELECT"
-) -> Dict[str, Any]:
+) -> str:
     """
     Execute a custom SQL query with parameters
 
@@ -535,7 +546,7 @@ async def execute_custom_query(
         This tool allows advanced users to execute custom SQL queries.
         Use with caution and ensure proper parameterization to prevent SQL injection.
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
 
     if not query.strip():
         raise ValueError("Query cannot be empty")
@@ -547,23 +558,25 @@ async def execute_custom_query(
             raise ValueError("Query must start with SELECT for query_type='SELECT'")
 
         results = await db_ctx.execute_query(query, *(params or []))
-        return {
+        result = {
             "success": True,
             "records": [db_ctx.serialize_value(record) for record in results],
             "record_count": len(results)
         }
     else:
         # For non-SELECT queries
-        result = await db_ctx.execute_command(query, *(params or []))
-        return {
+        command_result = await db_ctx.execute_command(query, *(params or []))
+        result = {
             "success": True,
-            "result": result,
-            "rows_affected": int(result.split()[-1]) if result.split()[-1].isdigit() else 0
+            "result": command_result,
+            "rows_affected": int(command_result.split()[-1]) if command_result.split()[-1].isdigit() else 0
         }
+
+    return json.dumps(result)
 
 
 @mcp.tool()
-async def get_table_statistics(ctx: Context, table_name: str, schema: str = "public") -> Dict[str, Any]:
+async def get_table_statistics(ctx: Context, table_name: str, schema: str = "public") -> str:
     """
     Get statistics about a table including row count, size, and column statistics
 
@@ -574,7 +587,7 @@ async def get_table_statistics(ctx: Context, table_name: str, schema: str = "pub
     Returns:
         Dictionary containing table statistics
     """
-    db_ctx: DatabaseContext = ctx.lifespan_context
+    db_ctx: DatabaseContext = ctx.request_context.lifespan_context
 
     # Get basic table info
     table_info_query = """
@@ -607,11 +620,12 @@ async def get_table_statistics(ctx: Context, table_name: str, schema: str = "pub
     if not table_info:
         raise ValueError(f"Table '{schema}.{table_name}' not found")
 
-    return {
+    result = {
         "table_info": table_info,
         "row_count": row_count["row_count"] if row_count else 0,
         "size_info": size_info or {}
     }
+    return json.dumps(result)
 
 
 def main():

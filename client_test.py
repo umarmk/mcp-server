@@ -101,7 +101,7 @@ async def test_advanced_queries(session: ClientSession):
     print("\n Testing advanced SELECT with pagination...")
     result = await session.call_tool("select_records", {
         "table_name": "items",
-        "order_by": "created_at DESC",
+        "order_by": "updated_at DESC",
         "limit": 3,
         "offset": 0
     })
