@@ -148,7 +148,7 @@ python db/init_db.py
 
 ```bash
 # Test basic connectivity
-python -c "import asyncio; from postgres_mcp_server import main; print('✅ Server can start')"
+python -c "import asyncio; from postgres_mcp_server import main; print('Server can start')"
 ```
 
 ## Project Structure
@@ -160,8 +160,6 @@ mcp-server/
 ├── .env.example             # Environment variables template
 ├── README.md                # This file
 ├── SETUP_GUIDE.md          # Detailed setup guide
-├── CHANGELOG.md            # Version history
-├── CONTRIBUTING.md         # Contribution guidelines
 ├── LICENSE                 # MIT License
 └── db/
     ├── connection.py        # Database connection utilities
