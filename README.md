@@ -185,16 +185,6 @@ mcp-server/
 
 ## Configuration
 
-### Environment Variables
-
-| Variable      | Description              | Default     | Required |
-| ------------- | ------------------------ | ----------- | -------- |
-| `PG_HOST`     | PostgreSQL host          | `localhost` | No       |
-| `PG_PORT`     | PostgreSQL port          | `5432`      | No       |
-| `PG_USER`     | PostgreSQL username      | -           | Yes      |
-| `PG_PASSWORD` | PostgreSQL password      | -           | Yes      |
-| `PG_DATABASE` | PostgreSQL database name | -           | Yes      |
-
 ### Connection Pool Settings
 
 The server uses connection pooling with the following defaults:
